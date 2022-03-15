@@ -1,0 +1,37 @@
+name: Check Releases
+
+on:
+  schedule:
+    - cron: "0 */1 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Force rebuild/push of all versions'
+        required: true
+        type: boolean
+        default: false
+
+jobs:
+  check-releases:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - id: check-release
+      env:
+        GITHUB_TOKEN: ${{ secrets.WORKFLOW_DISPATCH }}
+      run: |
+        : Validate all versions are available in all registries
+        latest="$(gh api repos/cli/cli/releases/latest --jq '.tag_name')"
+        for tag in $(./list-releases.sh 'cli/cli'); do
+          if test "${{ github.event.inputs.force }}" != 'true'; then
+            sh ./check-registry.sh -U "${{ github.actor }}" -A "${{ secrets.WORKFLOW_DISPATCH }}" -R 'ghcr.io' "${@}" "${{ github.repository }}/${tag}" && continue
+            sh ./check-registry.sh -R 'docker.io' "${{ github.repository }}/${tag}" && continue
+          fi
+          echo "Building ${tag}"
+          if test "${latest}" = "${tag}"; then
+            latest='true'
+          else
+            latest='false'
+          fi
+          gh workflow run build.yaml -f "tag=${tag}" -f "latest=${latest}"
+        done

@@ -1,0 +1,81 @@
+name: Docker Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to build'
+        required: false
+        type: string
+        default: latest
+      latest:
+        description: 'Add latest tag'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - id: checkout
+      uses: actions/checkout@v2
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v1
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v1
+
+    - id: login-ghcr
+      uses: docker/login-action@v1
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+
+    - id: login-docker
+      uses: docker/login-action@v1
+      with:
+        registry: docker.io
+        username: ${{ secrets.DOCKER_LOGIN }}
+        password: ${{ secrets.DOCKER_TOKEN }}
+
+    - id: build-metadata
+      run: |
+        : 'Generating Docker tags'
+        tags=
+        for repo in ghcr.io/major0/gh docker.io/major0/gh; do
+          tags="$(printf '%s%s%%0A' "${tags}" "${repo}:${{ github.event.inputs.tag }}")"
+          test '${{ github.event.inputs.latest }}' = 'false' || tags="$(printf '%s%s%%0A' "${tags}" "${repo}:latest")"
+        done
+        printf '::set-output name=tags::%s\n' "${tags}"
+
+
+    - id: docker-metadata
+      uses: docker/metadata-action@v3
+      with:
+        images: library/ubuntu:20.04@sha256:8ae9bafbb64f63a50caab98fd3a5e37b3eb837a3e0780b78e5218e63193961f9
+        tags: ${{ steps.build-tags.outputs.tags }}
+        labels: |
+          org.opencontainers.image.title=GitHub CLI
+          org.opencontainers.image.vendor=GitHub
+          org.opencontainers.image.version=${{ github.event.inputs.tag }}
+          org.opencontainers.image.licenses=MIT
+          org.opencontainers.image.description=gh is GitHub on the command line. It brings pull requests, issues, and other GitHub concepts to the terminal next to where you are already working with git and your code.
+          org.opencontainers.image.documentation=https://cli.github.com/manual/
+          org.opencontainers.image.authors=Mark Ferrell
+          org.opencontainers.image.source=https://github.com/major0/gh.git
+          org.opencontainers.image.url=https://github.com/major0/gh
+          org.opencontainers.image.base.name=docker.com/library/ubuntu
+          org.opencontainers.image.base.digest=sha256:8ae9bafbb64f63a50caab98fd3a5e37b3eb837a3e0780b78e5218e63193961f9
+
+    - id: build-push
+      uses: docker/build-push-action@v2
+      with:
+        push: true
+        tags: ${{ steps.build-metadata.outputs.tags }}
+        labels: ${{ steps.docker-metadata.outputs.labels }}
+        build-args: VERSION=${{ github.event.inputs.tag }}
+        cache-from: type=registry,ref=ghcr.io/major0/gh:latest
+        cache-to: type=inline
