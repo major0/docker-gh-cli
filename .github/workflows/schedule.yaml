@@ -24,7 +24,9 @@ jobs:
         latest="$(gh api repos/cli/cli/releases/latest --jq '.tag_name')"
         for tag in $(./list-releases.sh 'cli/cli'); do
           if test "${{ github.event.inputs.force }}" != 'true'; then
+            echo "Checking ghcr.io/${{ github.repository }}/${tag}"
             sh ./check-registry.sh -U "${{ github.actor }}" -A "${{ secrets.WORKFLOW_DISPATCH }}" -R 'ghcr.io' "${@}" "${{ github.repository }}/${tag}" && continue
+            echo "Checking docker.io/${{ github.repository }}/${tag}"
             sh ./check-registry.sh -R 'docker.io' "${{ github.repository }}/${tag}" && continue
           fi
           echo "Building ${tag}"
@@ -33,5 +35,6 @@ jobs:
           else
             latest='false'
           fi
+          echo "Building ${tag}"
           gh workflow run build.yaml -f "tag=${tag}" -f "latest=${latest}"
         done
